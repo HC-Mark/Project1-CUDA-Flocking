@@ -232,42 +232,55 @@ void Boids::copyBoidsToVBO(float *vbodptr_positions, float *vbodptr_velocities) 
 */
 __device__ glm::vec3 computeVelocityChange(int N, int iSelf, const glm::vec3 *pos, const glm::vec3 *vel) {
   // Rule 1: boids fly towards their local perceived center of mass, which excludes themselves
-    glm::vec3 perceived_center;
-    glm::vec3 c;
-    glm::vec3 perceived_velocity;
-    glm::vec3 return_vel;
+    glm::vec3 perceived_center(0.f,0.f,0.f);
+    glm::vec3 avoidance_velocity(0.f, 0.f, 0.f);
+    glm::vec3 perceived_velocity(0.f, 0.f, 0.f);
+    glm::vec3 return_vel(0.f, 0.f, 0.f);
     float neighbor_count_rule1 = 0;
     float neighbor_count_rule3 = 0;
+
+    //pre load all needed data
+    glm::vec3 curr_boid_pos = pos[iSelf];
     for (int idx = 0; idx < N; ++idx)
     {
         //if b = boid skip the rest actions
         if (idx == iSelf) continue;
         
+        //load current boid pos
+        glm::vec3 idx_boid_pos = pos[idx];
+        float dist = glm::distance(idx_boid_pos, curr_boid_pos);
         // Rule 1: boids fly towards their local perceived center of mass, which excludes themselves
-        if (glm::distance(pos[idx], pos[iSelf]) < rule1Distance)
+        if (dist < rule1Distance)
         {
-            perceived_center += pos[idx];
+            perceived_center += idx_boid_pos;
             neighbor_count_rule1++;
         }
         
         // Rule 2: boids try to stay a distance d away from each other
-        if (glm::distance(pos[idx], pos[iSelf]) < rule2Distance)
+        if (dist < rule2Distance)
         {
-            c += (pos[idx] - pos[iSelf]);
+            avoidance_velocity -= (idx_boid_pos - curr_boid_pos);
         }
 
         // Rule 3: boids try to match the speed of surrounding boids
-        if (glm::distance(pos[idx], pos[iSelf]) < rule3Distance)
+        if (dist < rule3Distance)
         {
             perceived_velocity += vel[idx];
             neighbor_count_rule3++;
         }
     }
 
+    //if we use N-1, the particles will shrink to the center of cube  -- safer
+    //glm::vec3 rule1_component = neighbor_count_rule1 > 0 ? (perceived_center / neighbor_count_rule1 - curr_boid_pos) * rule1Scale : glm::vec3(0.f, 0.f, 0.f);
+    //glm::vec3 rule2_component = avoidance_velocity * rule2Scale;
+    //glm::vec3 rule3_component = neighbor_count_rule3 > 0 ? (perceived_velocity / neighbor_count_rule3) * rule3Scale : glm::vec3(0.f, 0.f, 0.f);
+
+    //if we use N-1, the particles will shrink to the center of cube -- similar if we set perceived_center/velocity = 0 when neighbor_count is 0
     perceived_center /= neighbor_count_rule1;
     perceived_velocity /= neighbor_count_rule3;
 
-    return_vel += ((perceived_center - pos[iSelf]) * rule1Scale) + (c * rule2Scale) + (perceived_center * rule3Scale);
+    //helped by Hanna ReadMe Rule part sum all rules' and current velocity
+    return_vel += vel[iSelf] + ((perceived_center - curr_boid_pos) * rule1Scale) + (avoidance_velocity * rule2Scale) + (perceived_velocity * rule3Scale);
   
     return return_vel;
 }
@@ -283,8 +296,7 @@ __global__ void kernUpdateVelocityBruteForce(int N, glm::vec3 *pos,
     int index = threadIdx.x + (blockIdx.x * blockDim.x);
     glm::vec3 curr_velocity = computeVelocityChange(N, index, pos, vel1);
   // Clamp the speed
-    glm::vec3 zero_vec;
-    float curr_speed = glm::distance(curr_velocity, zero_vec);
+    float curr_speed = glm::length(curr_velocity);
     //if the total speed of vel is larger than maxSpeed, we normalize the vel and apply the maxSpeed we allow  -- do we need to care negative speed?
     if (curr_speed > maxSpeed)
     {
@@ -396,7 +408,7 @@ __global__ void kernUpdateVelNeighborSearchCoherent(
 */
 void Boids::stepSimulationNaive(float dt) {
   // TODO-1.2 - use the kernels you wrote to step the simulation forward in time.
-    int gridSize = numObjects / blockSize;
+    int gridSize = (numObjects + blockSize - 1) / blockSize; //helped by Gangzheng Tong
     dim3 blocksPerGrid(gridSize);
     //first compute the new velocity
     kernUpdateVelocityBruteForce <<< blocksPerGrid, threadsPerBlock >>> (numObjects, dev_pos, dev_vel1, dev_vel2);
@@ -404,10 +416,8 @@ void Boids::stepSimulationNaive(float dt) {
     //Then update the pos
     kernUpdatePos << < blocksPerGrid, threadsPerBlock >> > (numObjects, dt, dev_pos, dev_vel2);
 
-  // TODO-1.2 ping-pong the velocity buffers
-    glm::vec3 *dev_temp = dev_vel1;
-    dev_vel1 = dev_vel2;
-    dev_vel2 = dev_temp;
+  // TODO-1.2 ping-pong the velocity buffers -- swap content
+    cudaMemcpy(dev_vel1, dev_vel2, sizeof(glm::vec3) * numObjects, cudaMemcpyDeviceToDevice);
 }
 
 void Boids::stepSimulationScatteredGrid(float dt) {
