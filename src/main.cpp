@@ -7,7 +7,7 @@
 */
 #include <windows.h> //for create a directory to store performance data
 
-#define AUTOMATION 1
+#define AUTOMATION 0
 
 #ifdef AUTOMATION
 #include "cxxopts.hpp"
@@ -26,15 +26,15 @@ int n_objects;
 
 // LOOK-2.1 LOOK-2.3 - toggles for UNIFORM_GRID and COHERENT_GRID
 #define VISUALIZE 1
-#define UNIFORM_GRID 0
+#define UNIFORM_GRID 1
 #define COHERENT_GRID 0
 // LOOK-1.2 - change this to adjust particle count in the simulation
 //we need to modify in automation mode
-int N_FOR_VIS = 5000;
+int N_FOR_VIS = 50000;
 const float DT = 0.2f;
 
 //automation part mainly finished by Gangzheng Tong and we together figure out how to 
-#ifdef AUTOMATION
+#if AUTOMATION
 
 cxxopts::ParseResult
 parse(int argc, char* argv[])
@@ -79,15 +79,15 @@ parse(int argc, char* argv[])
 int main(int argc, char* argv[]) {
   projectName = "565 CUDA Intro: Boids";
 
-#ifdef AUTOMATION
+#if AUTOMATION
   parse(argc, argv);
 #endif
 
   if (init(argc, argv)) {
 
-#ifdef AUTOMATION
+#if AUTOMATION
     mainLoopAutomation();
-#elif
+#else
     mainLoop();
 #endif
     Boids::endSimulation();
@@ -274,7 +274,7 @@ void initShaders(GLuint * program) {
     // unmap buffer object
     cudaGLUnmapBufferObject(boidVBO_positions);
     cudaGLUnmapBufferObject(boidVBO_velocities);
-#elif
+#else
     // execute the kernel
     #if UNIFORM_GRID && COHERENT_GRID
     Boids::stepSimulationCoherentGrid(DT);

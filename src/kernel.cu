@@ -39,7 +39,7 @@ void checkCUDAError(const char *msg, int line = -1) {
 *****************/
 
 /*! Block size used for CUDA kernel launch. */
-#define blockSize 128
+#define blockSize 200
 
 // LOOK-1.2 Parameters for the boids algorithm.
 // These worked well in our reference implementation.
@@ -877,15 +877,9 @@ void Boids::stepSimulationCoherentGrid(float dt) {
         dev_pos, dev_vel1, dev_vel2);
 
     //dev_pos has been reshuffled -- dev_vel2 also need to bu reshuffled
-      //kernReshuffleArray << < blocksPerGridParticle, threadsPerBlock >> > (numObjects, dev_particleArrayIndices, dev_vel2, dev_vel2_buffer);
-      //cudaMemcpy(dev_vel2, dev_vel2_buffer, sizeof(glm::vec3) * numObjects, cudaMemcpyDeviceToDevice);
     // - Update positions
     kernUpdatePos << < blocksPerGridParticle, threadsPerBlock >> > (numObjects, dt, dev_pos, dev_vel2);
     // - Ping-pong buffers as needed. THIS MAY BE DIFFERENT FROM BEFORE. -- shuffle back and store back
-      //kernReverseArray <<< blocksPerGridParticle, threadsPerBlock >> > (numObjects, dev_particleArrayIndices, dev_vel2, dev_vel2_buffer);
-      //kernReverseArray << < blocksPerGridParticle, threadsPerBlock >> > (numObjects, dev_particleArrayIndices, dev_pos, dev_pos_buffer);
-      //cudaMemcpy(dev_vel1, dev_vel2_buffer, sizeof(glm::vec3) * numObjects, cudaMemcpyDeviceToDevice);
-      //cudaMemcpy(dev_pos, dev_pos_buffer, sizeof(glm::vec3) * numObjects, cudaMemcpyDeviceToDevice);
 
     glm::vec3 *temp_vel = dev_vel1;
     dev_vel1 = dev_vel2;
