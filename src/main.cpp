@@ -5,30 +5,91 @@
 * @date      2013-2017
 * @copyright University of Pennsylvania
 */
+#include <windows.h> //for create a directory to store performance data
+
+#define AUTOMATION 1
+
+#ifdef AUTOMATION
+#include "cxxopts.hpp"
+bool b_visualize;
+bool b_uniform;
+bool b_coherent;
+int n_objects;
+#endif
 
 #include "main.hpp"
+
 
 // ================
 // Configuration
 // ================
 
 // LOOK-2.1 LOOK-2.3 - toggles for UNIFORM_GRID and COHERENT_GRID
-#define VISUALIZE 0
-#define UNIFORM_GRID 1
-#define COHERENT_GRID 1
-
+#define VISUALIZE 1
+#define UNIFORM_GRID 0
+#define COHERENT_GRID 0
 // LOOK-1.2 - change this to adjust particle count in the simulation
-const int N_FOR_VIS = 5000;
+//we need to modify in automation mode
+int N_FOR_VIS = 5000;
 const float DT = 0.2f;
 
+//automation part mainly finished by Gangzheng Tong and we together figure out how to 
+#ifdef AUTOMATION
+
+cxxopts::ParseResult
+parse(int argc, char* argv[])
+{
+  try
+  {
+    cxxopts::Options options(argv[0], " - automation command line options");
+    options
+      .positional_help("[optional args]")
+      .show_positional_help();
+
+    options
+      .allow_unrecognised_options()
+      .add_options()
+      ("v, visualize", "Use OpenGL to visualize the result", cxxopts::value<bool>(b_visualize))
+      ("u, uniform", "Use uniform grid search", cxxopts::value<bool>(b_uniform))
+      ("c, coherent", "Use coherent grid search", cxxopts::value<bool>(b_coherent))
+      ("n, numObjects", "Number of objects", cxxopts::value<int>(n_objects)) ;
+
+    options.parse_positional({"input", "output", "positional"});
+
+    auto result = options.parse(argc, argv);
+
+    if (result.count("help"))
+    {
+      std::cout << options.help({"", "Group"}) << std::endl;
+      exit(0);
+    }
+
+    return result;
+
+  } catch (const cxxopts::OptionException& e)
+  {
+    std::cout << "error parsing options: " << e.what() << std::endl;
+    exit(1);
+  }
+}
+#endif
 /**
 * C main function.
 */
 int main(int argc, char* argv[]) {
   projectName = "565 CUDA Intro: Boids";
 
+#ifdef AUTOMATION
+  parse(argc, argv);
+#endif
+
   if (init(argc, argv)) {
+
+#ifdef AUTOMATION
+    mainLoopAutomation();
+#elif
     mainLoop();
+#endif
     Boids::endSimulation();
     return 0;
   } else {
@@ -47,6 +108,11 @@ GLFWwindow *window;
 * Initialization of CUDA and GLFW.
 */
 bool init(int argc, char **argv) {
+  //update N_FOR_VIS if in automation mode
+#if AUTOMATION
+    N_FOR_VIS = n_objects;
+#endif
+
   // Set window title to "Student Name: [SM 2.0] GPU Name"
   cudaDeviceProp deviceProp;
   int gpuDevice = 0;
@@ -110,7 +176,6 @@ bool init(int argc, char **argv) {
 
   // Initialize N-body simulation
   Boids::initSimulation(N_FOR_VIS);
-
   updateCamera();
 
   initShaders(program);
@@ -195,6 +260,21 @@ void initShaders(GLuint * program) {
     cudaGLMapBufferObject((void**)&dptrVertPositions, boidVBO_positions);
     cudaGLMapBufferObject((void**)&dptrVertVelocities, boidVBO_velocities);
 
+#if AUTOMATION
+    if(b_uniform && b_coherent)
+      Boids::stepSimulationCoherentGrid(DT);
+    else if( b_uniform )
+      Boids::stepSimulationCoherentGrid(DT);
+    else
+      Boids::stepSimulationNaive(DT);
+
+    if (b_visualize)
+        Boids::copyBoidsToVBO(dptrVertPositions, dptrVertVelocities);
+
+    // unmap buffer object
+    cudaGLUnmapBufferObject(boidVBO_positions);
+    cudaGLUnmapBufferObject(boidVBO_velocities);
+#elif
     // execute the kernel
     #if UNIFORM_GRID && COHERENT_GRID
     Boids::stepSimulationCoherentGrid(DT);
@@ -210,7 +290,84 @@ void initShaders(GLuint * program) {
     // unmap buffer object
     cudaGLUnmapBufferObject(boidVBO_positions);
     cudaGLUnmapBufferObject(boidVBO_velocities);
+#endif
   }
+
+  void mainLoopAutomation(int numFrames) {
+    double fps = 0;
+    double timebase = 0;
+    int frame = 0;
+    int totalFrames = 0;
+
+    std::ostringstream filename;
+    filename << "numObjects=" << n_objects;
+    if(b_uniform && b_coherent )
+      filename <<  " COHERENT_GRID";
+    else if (b_uniform)
+      filename <<  " UNIFORM_GRID";
+    else
+      filename <<  " NAIVE";
+
+    //generate a performance data under the project folder (if hierarchy is project_name\build)
+    std::ofstream output;
+    std::string output_folder_name = "..\\PerformanceData";
+    if (CreateDirectory(output_folder_name.c_str(), NULL) || ERROR_ALREADY_EXISTS == GetLastError())
+    {
+        std::string file_path = output_folder_name + "\\" + filename.str() + ".txt";
+        std::cout << file_path << std::endl;
+        output.open(file_path);
+        output << filename.str() << "\n-------------------------------------------\n";
+    }
+    else
+    {
+        std::cout << "fail to create PerformanceData folder, will just generate to build folder instead\n(it will be messy)" << std::endl;
+        output.open(filename.str() + ".txt");
+        output << filename.str() << "\n-------------------------------------------\n";
+    }
+
+
+
+    while (!glfwWindowShouldClose(window) && totalFrames < numFrames) {
+      glfwPollEvents();
+      totalFrames++;
+      frame++;
+      double time = glfwGetTime();
+
+      if (time - timebase > 1.0) {
+        fps = frame / (time - timebase);
+        timebase = time;
+        frame = 0;
+        output << fps << std::endl;
+      }
+
+      runCUDA();
+
+      std::ostringstream ss;
+      ss << "[";
+      ss.precision(1);
+      ss << std::fixed << fps;
+      ss << " fps] " << deviceName;
+      glfwSetWindowTitle(window, ss.str().c_str());
+
+      glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+      #if VISUALIZE
+      glUseProgram(program[PROG_BOID]);
+      glBindVertexArray(boidVAO);
+      glPointSize((GLfloat)pointSize);
+      glDrawElements(GL_POINTS, N_FOR_VIS + 1, GL_UNSIGNED_INT, 0);
+      glPointSize(1.0f);
+
+      glUseProgram(0);
+      glBindVertexArray(0);
+
+      glfwSwapBuffers(window);
+      #endif
+    }
+    output.close();
+    glfwDestroyWindow(window);
+    glfwTerminate();
+  } 
 
   void mainLoop() {
     double fps = 0;

@@ -65,6 +65,8 @@ int main(int argc, char* argv[]);
 // Main loop
 //====================================
 void mainLoop();
+//for automatically generate performance data
+void mainLoopAutomation(int numFrames = 2000); //-- by Gangzheng
 void errorCallback(int error, const char *description);
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
 void mouseButtonCallback(GLFWwindow* window, int button, int action, int mods);

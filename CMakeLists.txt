@@ -67,6 +67,7 @@ set(headers
     src/kernel.h
     src/main.hpp
     src/utilityCore.hpp
+	src/cxxopts.hpp
     )
 
 set(sources
