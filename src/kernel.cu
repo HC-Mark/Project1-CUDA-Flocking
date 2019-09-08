@@ -394,6 +394,13 @@ __global__ void kernComputeIndices(int N, int gridResolution,
     }
         //pre store info
         glm::vec3 curr_pos = pos[idx];
+
+        //test
+        //indices[idx] = idx;
+        //const glm::vec3 gridIndex = glm::floor((curr_pos - gridMin) * inverseCellWidth);
+        //gridIndices[idx] = gridIndex3Dto1D(gridIndex.x, gridIndex.y, gridIndex.z, gridResolution);
+
+        //original
         int idx_x = (curr_pos.x - gridMin.x) * inverseCellWidth;
         int idx_y = (curr_pos.y - gridMin.y) * inverseCellWidth;
         int idx_z = (curr_pos.z - gridMin.z) * inverseCellWidth;
@@ -445,7 +452,16 @@ __global__ void kernIdentifyCellStartEnd(int N, int *particleGridIndices,
         return;
     }
 
+    //test
+    //const int nextGrid = particleGridIndices[idx + 1];
 
+    //if (target_grid_index != nextGrid)
+    //{
+    //    gridCellEndIndices[target_grid_index] = idx;
+    //    gridCellStartIndices[nextGrid] = idx + 1;
+    //}
+
+    //original
     //check one before and one after
     if (target_grid_index != 0 && target_grid_index != particleGridIndices[idx - 1])
     {
@@ -469,7 +485,7 @@ __global__ void kernUpdateVelNeighborSearchScattered(
   int *gridCellStartIndices, int *gridCellEndIndices,
   int *particleArrayIndices,
   glm::vec3 *pos, glm::vec3 *vel1, glm::vec3 *vel2) {
-  // TODO-2.1 - Update a boid's velocity using the uniform grid to reduce
+    // TODO-2.1 - Update a boid's velocity using the uniform grid to reduce
   // the number of boids that need to be checked.
   // - Identify the grid cell that this particle is in
     int idx = threadIdx.x + (blockIdx.x * blockDim.x);
@@ -477,36 +493,37 @@ __global__ void kernUpdateVelNeighborSearchScattered(
         return;
     }
     glm::vec3 curr_boid_pos = pos[idx];
+
     int idx_x = (curr_boid_pos.x - gridMin.x) * inverseCellWidth;
     int idx_y = (curr_boid_pos.y - gridMin.y) * inverseCellWidth;
     int idx_z = (curr_boid_pos.z - gridMin.z) * inverseCellWidth;
 
     //combine to get the 1D index
     int gridIndex = gridIndex3Dto1D(idx_x, idx_y, idx_z, gridResolution);
-  // - Identify which cells may contain neighbors. This isn't always 8.
-    //by calculating those cells that interact with the sphere with the neighbor_radius(std::max(std::max(rule1Distance, rule2Distance), rule3Distance))  -not allowed
-    //float neighbor_radius = cellWidth / CELL_WIDTH_FACTOR;
+    // - Identify which cells may contain neighbors. This isn't always 8.
+
+      //by calculating those cells that interact with the sphere with the neighbor_radius(std::max(std::max(rule1Distance, rule2Distance), rule3Distance))  -not allowed unless it is const float
     const float neighbor_radius = glm::max(glm::max(rule1Distance, rule2Distance), rule3Distance);
-    int max_x = (curr_boid_pos.x + neighbor_radius - gridMin.x) * inverseCellWidth;
+    int max_x = glm::floor((curr_boid_pos.x + neighbor_radius - gridMin.x) * inverseCellWidth);
     max_x = max_x > gridResolution - 1 ? gridResolution - 1 : max_x;
-    int min_x = (curr_boid_pos.x - neighbor_radius - gridMin.x) * inverseCellWidth;
+    int min_x = glm::floor((curr_boid_pos.x - neighbor_radius - gridMin.x) * inverseCellWidth);
     min_x = min_x < 0 ? 0 : min_x;
-    int max_y = (curr_boid_pos.y + neighbor_radius - gridMin.y) * inverseCellWidth;
+    int max_y = glm::floor((curr_boid_pos.y + neighbor_radius - gridMin.y) * inverseCellWidth);
     max_y = max_y > gridResolution - 1 ? gridResolution - 1 : max_y;
-    int min_y = (curr_boid_pos.y + neighbor_radius - gridMin.y) * inverseCellWidth;
+    int min_y = glm::floor((curr_boid_pos.y + neighbor_radius - gridMin.y) * inverseCellWidth);
     min_y = min_y < 0 ? 0 : min_y;
-    int max_z = (curr_boid_pos.z + neighbor_radius - gridMin.z) * inverseCellWidth;
+    int max_z = glm::floor((curr_boid_pos.z + neighbor_radius - gridMin.z) * inverseCellWidth);
     max_z = max_z > gridResolution - 1 ? gridResolution - 1 : max_z;
-    int min_z = (curr_boid_pos.z + neighbor_radius - gridMin.z) * inverseCellWidth;
+    int min_z = glm::floor((curr_boid_pos.z + neighbor_radius - gridMin.z) * inverseCellWidth);
     min_z = min_z < 0 ? 0 : min_z;
 
-  // - For each cell, read the start/end indices in the boid pointer array.
+    // - For each cell, read the start/end indices in the boid pointer array.
     glm::vec3 perceived_center(0.f, 0.f, 0.f);
     glm::vec3 avoidance_velocity(0.f, 0.f, 0.f);
     glm::vec3 perceived_velocity(0.f, 0.f, 0.f);
     glm::vec3 new_velocity(0.f, 0.f, 0.f);
-    float neighbor_count_rule1 = 0;
-    float neighbor_count_rule3 = 0;
+    int neighbor_count_rule1 = 0;
+    int neighbor_count_rule3 = 0;
     //is this a grid-looping optimization?
     for (int x_cord_idx = min_x; x_cord_idx <= max_x; ++x_cord_idx)
     {
@@ -534,34 +551,36 @@ __global__ void kernUpdateVelNeighborSearchScattered(
 
                         //pre load temp boid pos
                         glm::vec3 idx_boid_pos = pos[boid_idx];
-                        float dist = glm::distance(idx_boid_pos, curr_boid_pos);
+                        float dist = glm::distance(curr_boid_pos, idx_boid_pos);
                         // Rule 1: boids fly towards their local perceived center of mass, which excludes themselves
-                        if (dist < rule1Distance)
+                        if (dist <= rule1Distance)
                         {
                             perceived_center += idx_boid_pos;
                             neighbor_count_rule1++;
                         }
 
                         // Rule 2: boids try to stay a distance d away from each other
-                        if (dist < rule2Distance)
+                        if (dist <= rule2Distance)
                         {
                             avoidance_velocity -= (idx_boid_pos - curr_boid_pos);
                         }
 
                         // Rule 3: boids try to match the speed of surrounding boids
-                        if (dist < rule3Distance)
+                        if (dist <= rule3Distance)
                         {
-                            perceived_velocity += vel1[idx];
+                            //use the boid_idx to access its speed, not the origianl speed ....
+                            //perceived_velocity += vel1[idx];
+                            perceived_velocity += vel1[boid_idx];
                             neighbor_count_rule3++;
                         }
-                        
+
                     }
-                
+
                 }
             }
-        
+
         }
-    
+
     }
 
     //compute the new velocity
@@ -570,15 +589,15 @@ __global__ void kernUpdateVelNeighborSearchScattered(
     glm::vec3 rule3_component = glm::vec3(0.f, 0.f, 0.f);
     if (neighbor_count_rule1 > 0)
     {
-        rule1_component = (perceived_center / neighbor_count_rule1 - curr_boid_pos) * rule1Scale;
+        rule1_component = (perceived_center / (float)neighbor_count_rule1 - curr_boid_pos) * rule1Scale;
     }
     rule2_component = avoidance_velocity * rule2Scale;
     if (neighbor_count_rule3 > 0)
     {
-        rule3_component = (perceived_velocity / neighbor_count_rule3) * rule3Scale;
+        rule3_component = (perceived_velocity / (float)neighbor_count_rule3) * rule3Scale;
     }
     new_velocity = vel1[idx] + rule1_component + rule2_component + rule3_component;
-  // - Clamp the speed change before putting the new speed in vel2
+    // - Clamp the speed change before putting the new speed in vel2
     float curr_speed = glm::length(new_velocity);
     //if the total speed of vel is larger than maxSpeed, we normalize the vel and apply the maxSpeed we allow
     if (curr_speed > maxSpeed)
@@ -642,8 +661,8 @@ __global__ void kernUpdateVelNeighborSearchCoherent(
     glm::vec3 avoidance_velocity(0.f, 0.f, 0.f);
     glm::vec3 perceived_velocity(0.f, 0.f, 0.f);
     glm::vec3 new_velocity(0.f, 0.f, 0.f);
-    float neighbor_count_rule1 = 0;
-    float neighbor_count_rule3 = 0;
+    int neighbor_count_rule1 = 0;
+    int neighbor_count_rule3 = 0;
     //is this a grid-looping optimization?
       //   DIFFERENCE: For best results, consider what order the cells should be
   //   checked in to maximize the memory benefits of reordering the boids data.
@@ -690,7 +709,7 @@ __global__ void kernUpdateVelNeighborSearchCoherent(
                         // Rule 3: boids try to match the speed of surrounding boids
                         if (dist < rule3Distance)
                         {
-                            perceived_velocity += vel1[idx];
+                            perceived_velocity += vel1[boid_idx];
                             neighbor_count_rule3++;
                         }
 
@@ -709,12 +728,12 @@ __global__ void kernUpdateVelNeighborSearchCoherent(
     glm::vec3 rule3_component = glm::vec3(0.f, 0.f, 0.f);
     if (neighbor_count_rule1 > 0)
     {
-        rule1_component = (perceived_center / neighbor_count_rule1 - curr_boid_pos) * rule1Scale;
+        rule1_component = (perceived_center / (float)neighbor_count_rule1 - curr_boid_pos) * rule1Scale;
     }
     rule2_component = avoidance_velocity * rule2Scale;
     if (neighbor_count_rule3 > 0)
     {
-        rule3_component = (perceived_velocity / neighbor_count_rule3) * rule3Scale;
+        rule3_component = (perceived_velocity / (float)neighbor_count_rule3) * rule3Scale;
     }
     new_velocity = vel1[idx] + rule1_component + rule2_component + rule3_component;
     // - Clamp the speed change before putting the new speed in vel2
